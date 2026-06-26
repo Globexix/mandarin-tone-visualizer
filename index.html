@@ -463,7 +463,7 @@
           rms += centered * centered;
         }
         rms = Math.sqrt(rms / buffer.length);
-        if (rms < 0.012) return -1;
+        if (rms < 0.005) return -1;
         const minLag = Math.max(2, Math.floor(sampleRate / 650));
         const maxLag = Math.min(buffer.length - 2, Math.floor(sampleRate / 55));
         const correlations = new Float32Array(maxLag + 2);
@@ -515,26 +515,32 @@
         animationFrame = requestAnimationFrame(analyzeFrame);
       }
       async function ensureMicrophone() {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unsupported.");
-        if (mediaStream && audioContext) {
-          if (audioContext.state === "suspended") await audioContext.resume();
-          return;
-        }
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false
-          }
-        });
-        audioContext = new(window.AudioContext || window.webkitAudioContext)();
-        await audioContext.resume();
-        sourceNode = audioContext.createMediaStreamSource(mediaStream);
-        analyser = audioContext.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0;
-        sourceNode.connect(analyser);
+      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unsupported.");
+      if (mediaStream && audioContext) {
+        if (audioContext.state === "suspended") await audioContext.resume();
+        return;
       }
+  
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const constraints = isMobile 
+        ? { audio: true } 
+        : {
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl: false
+            }
+          };
+
+      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      await audioContext.resume();
+      sourceNode = audioContext.createMediaStreamSource(mediaStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0;
+      sourceNode.connect(analyser);
+    }
       async function startRecording() {
         try {
           await ensureMicrophone();
