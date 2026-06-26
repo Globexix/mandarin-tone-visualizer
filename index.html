@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#000000" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+    <title>Mandarin Tone Trainer</title>
+    <style>
+      :root {
+        --bg: #000000;
+        --fg: #ffffff;
+        --muted: #666666;
+        --muted-light: #999999;
+        --line: #222222;
+        --accent: #ffffff;
+        --record: #ff4444;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: "Inter", -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      main {
+        width: 100%;
+        max-width: 600px;
+        padding: 2rem;
+        display: flex;
+        flex-direction: column;
+        gap: 3rem;
+      }
+
+      .setup-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+      }
+
+      .pinyin-input {
+        background: transparent;
+        border: none;
+        border-bottom: 1px solid var(--line);
+        color: var(--fg);
+        font-size: 1.25rem;
+        font-family: inherit;
+        width: 4ch;
+        text-align: center;
+        padding: 0.2rem;
+        outline: none;
+        transition: border-color 0.2s;
+      }
+
+      .pinyin-input:focus {
+        border-color: var(--fg);
+      }
+
+      .tone-toggles {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .tone-btn {
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        font-size: 1.1rem;
+        cursor: pointer;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: color 0.2s, background 0.2s;
+      }
+
+      .tone-btn:hover {
+        color: var(--fg);
+      }
+
+      .tone-btn.active {
+        color: var(--bg);
+        background: var(--fg);
+        font-weight: 500;
+      }
+
+      .display-row {
+        text-align: center;
+        min-height: 140px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .syllable {
+        font-size: clamp(6rem, 15vw, 8rem);
+        font-weight: 300;
+        line-height: 1;
+        letter-spacing: -0.05em;
+      }
+
+      .score {
+        font-size: 1rem;
+        color: var(--muted-light);
+        margin-top: 1rem;
+        height: 1.2rem;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+
+      .score.visible {
+        opacity: 1;
+      }
+
+      .chart-wrapper {
+        width: 100%;
+        height: 220px;
+        position: relative;
+      }
+
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+
+      .controls-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1.5rem;
+      }
+
+      button {
+        font-family: inherit;
+      }
+
+      .sec-btn {
+        background: transparent;
+        border: none;
+        color: var(--muted);
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: color 0.2s;
+        padding: 0.5rem;
+      }
+
+      .sec-btn:hover {
+        color: var(--fg);
+      }
+
+      .sec-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+      }
+
+      .pri-btn {
+        background: var(--fg);
+        color: var(--bg);
+        border: none;
+        font-size: 1rem;
+        font-weight: 500;
+        padding: 0.8rem 2.5rem;
+        border-radius: 2rem;
+        cursor: pointer;
+        transition: transform 0.1s, background 0.2s, box-shadow 0.2s;
+      }
+
+      .pri-btn:hover {
+        background: #e6e6e6;
+      }
+
+      .pri-btn.recording {
+        background: var(--record);
+        color: #fff;
+        animation: pulse 1.5s infinite;
+      }
+
+      .status {
+        text-align: center;
+        color: var(--muted);
+        font-size: 0.85rem;
+        line-height: 1.5;
+        height: 2.5rem;
+        margin-top: -1rem;
+      }
+
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(255, 68, 68, 0.4);
+        }
+
+        70% {
+          box-shadow: 0 0 0 10px rgba(255, 68, 68, 0);
+        }
+
+        100% {
+          box-shadow: 0 0 0 0 rgba(255, 68, 68, 0);
+        }
+      }
+
+      @media (max-width: 480px) {
+        .controls-row {
+          flex-wrap: wrap;
+          gap: 1rem;
+        }
+
+        .pri-btn {
+          order: -1;
+          width: 100%;
+          margin-bottom: 0.5rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="setup-row">
+        <input type="text" id="pinyin" class="pinyin-input" value="ma" maxlength="6" autocomplete="off" spellcheck="false" />
+        <div class="tone-toggles">
+          <button class="tone-btn" data-tone="1">1</button>
+          <button class="tone-btn" data-tone="2">2</button>
+          <button class="tone-btn" data-tone="3">3</button>
+          <button class="tone-btn active" data-tone="4">4</button>
+          <button class="tone-btn" data-tone="5">5</button>
+        </div>
+      </section>
+      <section class="display-row">
+        <div class="syllable" id="markedSyllable">mà</div>
+        <div class="score" id="score"></div>
+      </section>
+      <section class="chart-wrapper">
+        <canvas id="chart"></canvas>
+      </section>
+      <section class="controls-row">
+        <button class="sec-btn" id="playTarget">Play Target</button>
+        <button class="sec-btn" id="uploadAudio">Upload</button>
+        <input id="audioFile" type="file" accept="audio/*" hidden />
+        <button class="pri-btn" id="record">Record</button>
+        <button class="sec-btn" id="clear">Clear</button>
+      </section>
+      <div class="status" id="status">Hold the vowel for roughly one second.</div>
+    </main>
+    <script>
+      const pinyinInput = document.getElementById("pinyin");
+      const toneButtons = document.querySelectorAll(".tone-btn");
+      const markedSyllable = document.getElementById("markedSyllable");
+      const playTargetButton = document.getElementById("playTarget");
+      const recordButton = document.getElementById("record");
+      const uploadAudioButton = document.getElementById("uploadAudio");
+      const audioFileInput = document.getElementById("audioFile");
+      const clearButton = document.getElementById("clear");
+      const statusBox = document.getElementById("status");
+      const scoreBox = document.getElementById("score");
+      const canvas = document.getElementById("chart");
+      const ctx = canvas.getContext("2d");
+      let currentTone = 4;
+      const toneCurves = {
+        1: [
+          [0, 0.88],
+          [1, 0.88]
+        ],
+        2: [
+          [0, 0.50],
+          [0.20, 0.48],
+          [1, 0.88]
+        ],
+        3: [
+          [0, 0.30],
+          [0.58, 0.12],
+          [1, 0.70]
+        ],
+        4: [
+          [0, 0.88],
+          [0.10, 0.86],
+          [1, 0.12]
+        ]
+      };
+      let audioContext = null;
+      let mediaStream = null;
+      let analyser = null;
+      let sourceNode = null;
+      let animationFrame = null;
+      let isRecording = false;
+      let pitchSamples = [];
+      let startTime = 0;
+
+      function applyToneMark(raw, tone) {
+        const clean = raw.toLowerCase().replace(/[^a-züv]/g, "").replace(/v/g, "ü") || "ma";
+        if (Number(tone) === 5) return clean;
+        const marks = {
+          a: ["ā", "á", "ǎ", "à"],
+          e: ["ē", "é", "ě", "è"],
+          i: ["ī", "í", "ǐ", "ì"],
+          o: ["ō", "ó", "ǒ", "ò"],
+          u: ["ū", "ú", "ǔ", "ù"],
+          "ü": ["ǖ", "ǘ", "ǚ", "ǜ"]
+        };
+        let index = -1;
+        if (clean.includes("a")) index = clean.indexOf("a");
+        else if (clean.includes("e")) index = clean.indexOf("e");
+        else if (clean.includes("ou")) index = clean.indexOf("o");
+        else {
+          for (let i = clean.length - 1; i >= 0; i--) {
+            if ("aeiouü".includes(clean[i])) {
+              index = i;
+              break;
+            }
+          }
+        }
+        if (index < 0 || !marks[clean[index]]) return clean + tone;
+        return clean.slice(0, index) + marks[clean[index]][Number(tone) - 1] + clean.slice(index + 1);
+      }
+
+      function updateSyllable() {
+        const cleanVal = pinyinInput.value.replace(/[^a-zA-Züv]/g, '');
+        if (cleanVal !== pinyinInput.value) pinyinInput.value = cleanVal;
+        markedSyllable.textContent = applyToneMark(pinyinInput.value, currentTone);
+        pitchSamples = [];
+        scoreBox.classList.remove('visible');
+        drawChart();
+      }
+
+      function resizeCanvas() {
+        const rect = canvas.parentNode.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = Math.round(rect.width * dpr);
+        canvas.height = Math.round(rect.height * dpr);
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawChart();
+      }
+
+      function curveAt(curve, x) {
+        for (let i = 0; i < curve.length - 1; i++) {
+          const [x1, y1] = curve[i];
+          const [x2, y2] = curve[i + 1];
+          if (x >= x1 && x <= x2) {
+            const t = (x - x1) / Math.max(x2 - x1, 0.0001);
+            const smooth = t * t * (3 - 2 * t);
+            return y1 + (y2 - y1) * smooth;
+          }
+        }
+        return curve[curve.length - 1][1];
+      }
+
+      function normalizePitch(samples) {
+        const valid = samples.filter(s => Number.isFinite(s.hz) && s.hz > 55 && s.hz < 650);
+        if (valid.length < 3) return [];
+        const times = valid.map(s => s.time);
+        const minTime = times[0];
+        const maxTime = times[times.length - 1];
+        const hzValues = valid.map(s => s.hz).sort((a, b) => a - b);
+        const median = hzValues[Math.floor(hzValues.length / 2)];
+        const semitones = valid.map(s => ({
+          x: (s.time - minTime) / Math.max(maxTime - minTime, 0.001),
+          st: 12 * Math.log2(s.hz / median)
+        }));
+        const stSorted = semitones.map(s => s.st).sort((a, b) => a - b);
+        const lo = stSorted[Math.floor(stSorted.length * 0.08)];
+        const hi = stSorted[Math.floor(stSorted.length * 0.92)];
+        const center = (lo + hi) / 2;
+        const span = Math.max(hi - lo, 3.5);
+        return semitones.map(s => ({
+          x: s.x,
+          y: Math.max(0.05, Math.min(0.95, 0.5 + (s.st - center) / Math.max(12, span * 1.8)))
+        }));
+      }
+
+      function smoothPoints(points, radius = 3) {
+        return points.map((point, index) => {
+          let total = 0,
+            count = 0;
+          for (let i = Math.max(0, index - radius); i <= Math.min(points.length - 1, index + radius); i++) {
+            total += points[i].y;
+            count++;
+          }
+          return {
+            x: point.x,
+            y: total / count
+          };
+        });
+      }
+
+      function drawChart() {
+        const width = canvas.clientWidth;
+        const height = canvas.clientHeight;
+        const pad = {
+          top: 20,
+          bottom: 20,
+          side: 5
+        };
+        const plotW = width - pad.side * 2;
+        const plotH = height - pad.top - pad.bottom;
+        ctx.clearRect(0, 0, width, height);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 1; i <= 3; i++) {
+          const y = pad.top + (plotH * i / 4);
+          ctx.moveTo(pad.side, y);
+          ctx.lineTo(width - pad.side, y);
+        }
+        ctx.stroke();
+        const target = toneCurves[currentTone];
+        ctx.save();
+        ctx.setLineDash([4, 6]);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        for (let i = 0; i <= 100; i++) {
+          const xNorm = i / 100;
+          const yNorm = curveAt(target, xNorm);
+          const x = pad.side + xNorm * plotW;
+          const y = pad.top + (1 - yNorm) * plotH;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+        const actual = smoothPoints(normalizePitch(pitchSamples), 3);
+        if (actual.length > 1) {
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 3;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          ctx.beginPath();
+          actual.forEach((point, index) => {
+            const x = pad.side + point.x * plotW;
+            const y = pad.top + (1 - point.y) * plotH;
+            if (index === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        }
+      }
+
+      function autoCorrelate(buffer, sampleRate) {
+        let mean = 0;
+        for (let i = 0; i < buffer.length; i++) mean += buffer[i];
+        mean /= buffer.length;
+        let rms = 0;
+        for (let i = 0; i < buffer.length; i++) {
+          const centered = buffer[i] - mean;
+          rms += centered * centered;
+        }
+        rms = Math.sqrt(rms / buffer.length);
+        if (rms < 0.012) return -1;
+        const minLag = Math.max(2, Math.floor(sampleRate / 650));
+        const maxLag = Math.min(buffer.length - 2, Math.floor(sampleRate / 55));
+        const correlations = new Float32Array(maxLag + 2);
+        let bestLag = -1,
+          bestCorrelation = 0;
+        for (let lag = minLag; lag <= maxLag; lag++) {
+          let correlation = 0,
+            energyA = 0,
+            energyB = 0;
+          for (let i = 0; i < buffer.length - lag; i++) {
+            const a = buffer[i] - mean;
+            const b = buffer[i + lag] - mean;
+            correlation += a * b;
+            energyA += a * a;
+            energyB += b * b;
+          }
+          const normalized = correlation / Math.sqrt(Math.max(energyA * energyB, 1e-12));
+          correlations[lag] = normalized;
+          if (normalized > bestCorrelation) {
+            bestCorrelation = normalized;
+            bestLag = lag;
+          }
+        }
+        if (bestLag < 0 || bestCorrelation < 0.48) return -1;
+        const left = correlations[bestLag - 1] || correlations[bestLag];
+        const center = correlations[bestLag];
+        const right = correlations[bestLag + 1] || correlations[bestLag];
+        const denominator = left - 2 * center + right;
+        const correction = Math.abs(denominator) > 1e-8 ? 0.5 * (left - right) / denominator : 0;
+        return sampleRate / (bestLag + Math.max(-1, Math.min(1, correction)));
+      }
+
+      function analyzeFrame() {
+        if (!isRecording || !analyser || !audioContext) return;
+        const buffer = new Float32Array(analyser.fftSize);
+        analyser.getFloatTimeDomainData(buffer);
+        const hz = autoCorrelate(buffer, audioContext.sampleRate);
+        const elapsed = audioContext.currentTime - startTime;
+        if (hz > 55 && hz < 650) {
+          const last = pitchSamples[pitchSamples.length - 1];
+          if (!last || Math.abs(hz - last.hz) / last.hz < 0.35) {
+            pitchSamples.push({
+              time: elapsed,
+              hz
+            });
+          }
+        }
+        drawChart();
+        animationFrame = requestAnimationFrame(analyzeFrame);
+      }
+      async function ensureMicrophone() {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unsupported.");
+        if (mediaStream && audioContext) {
+          if (audioContext.state === "suspended") await audioContext.resume();
+          return;
+        }
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+        audioContext = new(window.AudioContext || window.webkitAudioContext)();
+        await audioContext.resume();
+        sourceNode = audioContext.createMediaStreamSource(mediaStream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.smoothingTimeConstant = 0;
+        sourceNode.connect(analyser);
+      }
+      async function startRecording() {
+        try {
+          await ensureMicrophone();
+          pitchSamples = [];
+          startTime = audioContext.currentTime;
+          isRecording = true;
+          scoreBox.classList.remove('visible');
+          recordButton.textContent = "Stop";
+          recordButton.classList.add("recording");
+          statusBox.textContent = "Listening... say the syllable.";
+          analyzeFrame();
+        } catch (error) {
+          statusBox.textContent = "Microphone access denied or unavailable.";
+        }
+      }
+
+      function finishAttempt() {
+        const normalized = smoothPoints(normalizePitch(pitchSamples), 3);
+        if (normalized.length < 8) {
+          statusBox.textContent = "Not enough stable pitch detected. Try holding the vowel longer.";
+          scoreBox.classList.remove('visible');
+        } else {
+          const score = calculateScore(normalized, currentTone);
+          scoreBox.textContent = `${score}% Match`;
+          scoreBox.classList.add('visible');
+        }
+        drawChart();
+      }
+
+      function stopRecording() {
+        isRecording = false;
+        if (animationFrame) cancelAnimationFrame(animationFrame);
+        recordButton.textContent = "Record";
+        recordButton.classList.remove("recording");
+        finishAttempt();
+      }
+      async function analyzeUploadedFile(file) {
+        if (!file) return;
+        if (isRecording) stopRecording();
+        scoreBox.classList.remove('visible');
+        statusBox.textContent = `Analyzing...`;
+        const decodingContext = new(window.AudioContext || window.webkitAudioContext)();
+        try {
+          const bytes = await file.arrayBuffer();
+          const decoded = await decodingContext.decodeAudioData(bytes);
+          const mono = new Float32Array(decoded.length);
+          for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
+            const channelData = decoded.getChannelData(channel);
+            for (let i = 0; i < decoded.length; i++) mono[i] += channelData[i] / decoded.numberOfChannels;
+          }
+          const frameSize = 2048,
+            hopSize = 1024;
+          pitchSamples = [];
+          for (let offset = 0; offset + frameSize <= mono.length; offset += hopSize) {
+            const frame = mono.subarray(offset, offset + frameSize);
+            const hz = autoCorrelate(frame, decoded.sampleRate);
+            if (hz > 55 && hz < 650) {
+              const last = pitchSamples[pitchSamples.length - 1];
+              if (!last || Math.abs(hz - last.hz) / last.hz < 0.38) {
+                pitchSamples.push({
+                  time: offset / decoded.sampleRate,
+                  hz
+                });
+              }
+            }
+          }
+          finishAttempt();
+        } catch (error) {
+          statusBox.textContent = "Could not decode audio file.";
+        } finally {
+          if (decodingContext.state !== "closed") decodingContext.close();
+          audioFileInput.value = "";
+        }
+      }
+
+      function sampleActual(points, x) {
+        if (!points.length) return 0.5;
+        let best = points[0],
+          distance = Math.abs(points[0].x - x);
+        for (const point of points) {
+          const d = Math.abs(point.x - x);
+          if (d < distance) {
+            best = point;
+            distance = d;
+          }
+        }
+        return best.y;
+      }
+
+      function calculateScore(points, tone) {
+        const target = toneCurves[tone];
+        let error = 0,
+          count = 50;
+        if (tone === 1) {
+          const ys = points.map(p => p.y);
+          const mean = ys.reduce((sum, val) => sum + val, 0) / ys.length;
+          const variance = ys.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / ys.length;
+          error = Math.sqrt(variance) * 2.3 + Math.abs(points[points.length - 1].y - points[0].y) * 0.8;
+        } else {
+          const actualVals = [],
+            targetVals = [];
+          for (let i = 0; i < count; i++) {
+            const x = i / (count - 1);
+            actualVals.push(sampleActual(points, x));
+            targetVals.push(curveAt(target, x));
+          }
+          const normalize = vals => {
+            const min = Math.min(...vals),
+              span = Math.max(Math.max(...vals) - min, 0.12);
+            return vals.map(v => (v - min) / span);
+          };
+          const a = normalize(actualVals),
+            t = normalize(targetVals);
+          error = Math.sqrt(a.reduce((sum, val, i) => sum + Math.pow(val - t[i], 2), 0) / count);
+        }
+        return Math.max(0, Math.min(100, Math.round(100 * (1 - error / 0.62))));
+      }
+      async function playTarget() {
+        playTargetButton.disabled = true;
+        const context = new(window.AudioContext || window.webkitAudioContext)();
+        await context.resume();
+        const oscillator = context.createOscillator(),
+          gain = context.createGain();
+        const curve = toneCurves[currentTone],
+          duration = currentTone === 5 ? 0.5 : 1.15;
+        const now = context.currentTime + 0.04;
+        oscillator.type = "sine";
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(0.13, now + 0.04);
+        gain.gain.setValueAtTime(0.13, now + duration - 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+        for (const [x, y] of curve) {
+          const hz = 125 * Math.pow(2, ((y - 0.5) * 12) / 12);
+          oscillator.frequency.linearRampToValueAtTime(hz, now + x * duration);
+        }
+        oscillator.connect(gain).connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + duration + 0.03);
+        setTimeout(async () => {
+          await context.close();
+          playTargetButton.disabled = false;
+        }, (duration + 0.15) * 1000);
+      }
+      toneButtons.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          toneButtons.forEach(b => b.classList.remove("active"));
+          e.target.classList.add("active");
+          currentTone = Number(e.target.dataset.tone);
+          updateSyllable();
+        });
+      });
+      pinyinInput.addEventListener("input", updateSyllable);
+      recordButton.addEventListener("click", () => {
+        if (isRecording) stopRecording();
+        else startRecording();
+      });
+      uploadAudioButton.addEventListener("click", () => audioFileInput.click());
+      audioFileInput.addEventListener("change", () => analyzeUploadedFile(audioFileInput.files?.[0]));
+      clearButton.addEventListener("click", () => {
+        if (isRecording) stopRecording();
+        pitchSamples = [];
+        scoreBox.classList.remove('visible');
+        statusBox.textContent = "Ready.";
+        drawChart();
+      });
+      playTargetButton.addEventListener("click", playTarget);
+      window.addEventListener("resize", resizeCanvas);
+      updateSyllable();
+      setTimeout(resizeCanvas, 0);
+    </script>
+  </body>
+</html>
