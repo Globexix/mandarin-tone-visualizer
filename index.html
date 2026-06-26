@@ -273,6 +273,7 @@
       const canvas = document.getElementById("chart");
       const ctx = canvas.getContext("2d");
       let currentTone = 4;
+      let previousTone = 4;
       const toneCurves = {
         1: [
           [0, 0.88],
@@ -294,14 +295,48 @@
           [1, 0.12]
         ]
       };
+      const neutralCurves = {
+        1: [
+          [0, 0.58],
+          [1, 0.44]
+        ],
+        2: [
+          [0, 0.72],
+          [1, 0.50]
+        ],
+        3: [
+          [0, 0.48],
+          [1, 0.48]
+        ],
+        4: [
+          [0, 0.28],
+          [1, 0.28]
+        ]
+      };
       let audioContext = null;
       let mediaStream = null;
-      let analyser = null;
+      let processorNode = null;
+      let silentNode = null;
       let sourceNode = null;
-      let animationFrame = null;
+      let drawAnimationFrame = null;
       let isRecording = false;
       let pitchSamples = [];
+      let recordedBuffers = [];
+      let recordedSampleRate = 0;
+      let recordedSampleCount = 0;
+      let liveAnalysisTime = 0;
       let startTime = 0;
+
+      function getToneCurve(tone, previousTone = null) {
+        if (tone === 5) {
+          return neutralCurves[previousTone] ?? [
+            [0, 0.50],
+            [1, 0.44]
+          ];
+        }
+
+        return toneCurves[tone];
+      }
 
       function applyToneMark(raw, tone) {
         const clean = raw.toLowerCase().replace(/[^a-züv]/g, "").replace(/v/g, "ü") || "ma";
@@ -335,6 +370,10 @@
         if (cleanVal !== pinyinInput.value) pinyinInput.value = cleanVal;
         markedSyllable.textContent = applyToneMark(pinyinInput.value, currentTone);
         pitchSamples = [];
+        recordedBuffers = [];
+        recordedSampleRate = 0;
+        recordedSampleCount = 0;
+        liveAnalysisTime = 0;
         scoreBox.classList.remove('visible');
         drawChart();
       }
@@ -362,25 +401,31 @@
       }
 
       function normalizePitch(samples) {
-        const valid = samples.filter(s => Number.isFinite(s.hz) && s.hz > 55 && s.hz < 650);
+        const valid = samples
+          .filter(s => Number.isFinite(s.hz) && s.hz > 55 && s.hz < 650)
+          .sort((a, b) => a.time - b.time);
         if (valid.length < 3) return [];
         const times = valid.map(s => s.time);
         const minTime = times[0];
         const maxTime = times[times.length - 1];
-        const hzValues = valid.map(s => s.hz).sort((a, b) => a - b);
-        const median = hzValues[Math.floor(hzValues.length / 2)];
-        const semitones = valid.map(s => ({
-          x: (s.time - minTime) / Math.max(maxTime - minTime, 0.001),
-          st: 12 * Math.log2(s.hz / median)
-        }));
-        const stSorted = semitones.map(s => s.st).sort((a, b) => a - b);
+        const stValues = valid.map(s => 12 * Math.log2(s.hz));
+        const filtered = valid.map((sample, index) => {
+          const window = stValues
+            .slice(Math.max(0, index - 2), Math.min(stValues.length, index + 3))
+            .sort((a, b) => a - b);
+          return {
+            x: (sample.time - minTime) / Math.max(maxTime - minTime, 0.001),
+            st: window[Math.floor(window.length / 2)]
+          };
+        });
+        const stSorted = filtered.map(s => s.st).sort((a, b) => a - b);
         const lo = stSorted[Math.floor(stSorted.length * 0.08)];
         const hi = stSorted[Math.floor(stSorted.length * 0.92)];
         const center = (lo + hi) / 2;
         const span = Math.max(hi - lo, 3.5);
-        return semitones.map(s => ({
+        return filtered.map(s => ({
           x: s.x,
-          y: Math.max(0.05, Math.min(0.95, 0.5 + (s.st - center) / Math.max(12, span * 1.8)))
+          y: Math.max(0.05, Math.min(0.95, 0.5 + (s.st - center) / Math.max(12, span * 1.7)))
         }));
       }
 
@@ -397,6 +442,29 @@
             y: total / count
           };
         });
+      }
+
+      function interpolatePoints(points, count = 120) {
+        if (points.length < 2) return points;
+        const result = [];
+        let cursor = 0;
+        for (let i = 0; i < count; i++) {
+          const x = i / (count - 1);
+          while (cursor < points.length - 2 && points[cursor + 1].x < x) cursor++;
+          const left = points[cursor];
+          const right = points[Math.min(points.length - 1, cursor + 1)];
+          const span = Math.max(right.x - left.x, 0.0001);
+          const t = Math.max(0, Math.min(1, (x - left.x) / span));
+          result.push({
+            x,
+            y: left.y + (right.y - left.y) * t
+          });
+        }
+        return result;
+      }
+
+      function getActualCurve() {
+        return smoothPoints(interpolatePoints(normalizePitch(pitchSamples)), 4);
       }
 
       function drawChart() {
@@ -419,7 +487,7 @@
           ctx.lineTo(width - pad.side, y);
         }
         ctx.stroke();
-        const target = toneCurves[currentTone];
+        const target = getToneCurve(currentTone, previousTone);
         ctx.save();
         ctx.setLineDash([4, 6]);
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
@@ -436,7 +504,7 @@
         }
         ctx.stroke();
         ctx.restore();
-        const actual = smoothPoints(normalizePitch(pitchSamples), 3);
+        const actual = getActualCurve();
         if (actual.length > 1) {
           ctx.strokeStyle = '#ffffff';
           ctx.lineWidth = 3;
@@ -458,112 +526,371 @@
         for (let i = 0; i < buffer.length; i++) mean += buffer[i];
         mean /= buffer.length;
         let rms = 0;
+        const centered = new Float32Array(buffer.length);
         for (let i = 0; i < buffer.length; i++) {
-          const centered = buffer[i] - mean;
-          rms += centered * centered;
+          centered[i] = buffer[i] - mean;
+          rms += centered[i] * centered[i];
         }
         rms = Math.sqrt(rms / buffer.length);
-        if (rms < 0.005) return -1;
+        if (rms < 0.004) return -1;
         const minLag = Math.max(2, Math.floor(sampleRate / 650));
-        const maxLag = Math.min(buffer.length - 2, Math.floor(sampleRate / 55));
-        const correlations = new Float32Array(maxLag + 2);
-        let bestLag = -1,
-          bestCorrelation = 0;
-        for (let lag = minLag; lag <= maxLag; lag++) {
-          let correlation = 0,
-            energyA = 0,
-            energyB = 0;
+        const maxLag = Math.min(Math.floor(sampleRate / 55), Math.floor(buffer.length / 2));
+        const difference = new Float32Array(maxLag + 1);
+        for (let lag = 1; lag <= maxLag; lag++) {
+          let sum = 0;
           for (let i = 0; i < buffer.length - lag; i++) {
-            const a = buffer[i] - mean;
-            const b = buffer[i + lag] - mean;
-            correlation += a * b;
-            energyA += a * a;
-            energyB += b * b;
+            const delta = centered[i] - centered[i + lag];
+            sum += delta * delta;
           }
-          const normalized = correlation / Math.sqrt(Math.max(energyA * energyB, 1e-12));
-          correlations[lag] = normalized;
-          if (normalized > bestCorrelation) {
-            bestCorrelation = normalized;
+          difference[lag] = sum;
+        }
+        let running = 0;
+        let bestLag = -1;
+        let bestValue = Infinity;
+        for (let lag = 1; lag <= maxLag; lag++) {
+          running += difference[lag];
+          difference[lag] = difference[lag] * lag / Math.max(running, 1e-12);
+          if (lag >= minLag && difference[lag] < bestValue) {
+            bestValue = difference[lag];
             bestLag = lag;
           }
         }
-        if (bestLag < 0 || bestCorrelation < 0.48) return -1;
-        const left = correlations[bestLag - 1] || correlations[bestLag];
-        const center = correlations[bestLag];
-        const right = correlations[bestLag + 1] || correlations[bestLag];
+        if (bestLag < 0 || bestValue > 0.42) return -1;
+        const left = difference[bestLag - 1] || difference[bestLag];
+        const center = difference[bestLag];
+        const right = difference[bestLag + 1] || difference[bestLag];
         const denominator = left - 2 * center + right;
         const correction = Math.abs(denominator) > 1e-8 ? 0.5 * (left - right) / denominator : 0;
-        return sampleRate / (bestLag + Math.max(-1, Math.min(1, correction)));
+        const lag = bestLag + Math.max(-1, Math.min(1, correction));
+        return sampleRate / lag;
       }
 
-      function analyzeFrame() {
-        if (!isRecording || !analyser || !audioContext) return;
-        const buffer = new Float32Array(analyser.fftSize);
-        analyser.getFloatTimeDomainData(buffer);
-        const hz = autoCorrelate(buffer, audioContext.sampleRate);
-        const elapsed = audioContext.currentTime - startTime;
-        if (hz > 55 && hz < 650) {
-          const last = pitchSamples[pitchSamples.length - 1];
-          if (!last || Math.abs(hz - last.hz) / last.hz < 0.35) {
-            pitchSamples.push({
-              time: elapsed,
-              hz
+      function pitchCandidates(buffer, sampleRate, floor = 60, ceiling = 500) {
+        let mean = 0;
+        for (let i = 0; i < buffer.length; i++) mean += buffer[i];
+        mean /= buffer.length;
+        let rms = 0;
+        const centered = new Float32Array(buffer.length);
+        for (let i = 0; i < buffer.length; i++) {
+          const window = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / Math.max(1, buffer.length - 1));
+          centered[i] = (buffer[i] - mean) * window;
+          rms += centered[i] * centered[i];
+        }
+        rms = Math.sqrt(rms / buffer.length);
+        if (rms < 0.0015) return {
+          rms,
+          candidates: []
+        };
+        const minLag = Math.max(2, Math.floor(sampleRate / ceiling));
+        const maxLag = Math.min(Math.floor(sampleRate / floor), Math.floor(buffer.length / 2));
+        const difference = new Float32Array(maxLag + 1);
+        for (let lag = 1; lag <= maxLag; lag++) {
+          let sum = 0;
+          for (let i = 0; i < buffer.length - lag; i++) {
+            const delta = centered[i] - centered[i + lag];
+            sum += delta * delta;
+          }
+          difference[lag] = sum;
+        }
+        let running = 0;
+        for (let lag = 1; lag <= maxLag; lag++) {
+          running += difference[lag];
+          difference[lag] = difference[lag] * lag / Math.max(running, 1e-12);
+        }
+        const candidates = [];
+        let bestLag = -1;
+        let bestValue = Infinity;
+        for (let lag = minLag; lag <= maxLag; lag++) {
+          const value = difference[lag];
+          if (value < bestValue) {
+            bestValue = value;
+            bestLag = lag;
+          }
+          const left = difference[lag - 1] ?? value;
+          const right = difference[lag + 1] ?? value;
+          if (value <= left && value <= right && value < 0.72) {
+            const denominator = left - 2 * value + right;
+            const correction = Math.abs(denominator) > 1e-8 ? 0.5 * (left - right) / denominator : 0;
+            const adjustedLag = lag + Math.max(-1, Math.min(1, correction));
+            candidates.push({
+              hz: sampleRate / adjustedLag,
+              strength: Math.max(0, Math.min(1, 1 - value))
             });
           }
         }
-        drawChart();
-        animationFrame = requestAnimationFrame(analyzeFrame);
+        if (!candidates.length && bestLag > 0 && bestValue < 0.82) {
+          candidates.push({
+            hz: sampleRate / bestLag,
+            strength: Math.max(0, Math.min(1, 1 - bestValue))
+          });
+        }
+        candidates.sort((a, b) => b.strength - a.strength);
+        return {
+          rms,
+          candidates: candidates.slice(0, 6)
+        };
       }
-      async function ensureMicrophone() {
-      if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unsupported.");
-      if (mediaStream && audioContext) {
-        if (audioContext.state === "suspended") await audioContext.resume();
-        return;
-      }
-  
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-      const constraints = isMobile 
-        ? { audio: true } 
-        : {
-            audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
-              autoGainControl: false
-            }
-          };
 
-      mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      await audioContext.resume();
-      sourceNode = audioContext.createMediaStreamSource(mediaStream);
-      analyser = audioContext.createAnalyser();
-      analyser.fftSize = 2048;
-      analyser.smoothingTimeConstant = 0;
-      sourceNode.connect(analyser);
-    }
+      function mergeRecordedBuffers(buffers) {
+        const length = buffers.reduce((sum, buffer) => sum + buffer.length, 0);
+        const merged = new Float32Array(length);
+        let offset = 0;
+        for (const buffer of buffers) {
+          merged.set(buffer, offset);
+          offset += buffer.length;
+        }
+        return merged;
+      }
+
+      function selectVoicedSegment(frames) {
+        const maxRms = Math.max(...frames.map(frame => frame.rms), 0);
+        if (!maxRms) return [];
+        let threshold = maxRms * 0.18;
+        let voiced = frames.map(frame => frame.candidates.length && frame.rms >= threshold);
+        if (voiced.filter(Boolean).length < 5) {
+          threshold = maxRms * 0.10;
+          voiced = frames.map(frame => frame.candidates.length && frame.rms >= threshold);
+        }
+        let bestStart = 0,
+          bestEnd = -1,
+          bestCount = 0,
+          start = -1,
+          lastVoiced = -1,
+          count = 0;
+        for (let i = 0; i < frames.length; i++) {
+          if (voiced[i]) {
+            if (start < 0 || i - lastVoiced > 4) {
+              start = i;
+              count = 0;
+            }
+            lastVoiced = i;
+            count++;
+            if (count > bestCount) {
+              bestCount = count;
+              bestStart = start;
+              bestEnd = i;
+            }
+          }
+        }
+        if (bestEnd < bestStart) return [];
+        return frames.slice(bestStart, bestEnd + 1).filter((frame, index, segment) => {
+          const globalIndex = bestStart + index;
+          return voiced[globalIndex] || segment.some((other, otherIndex) => Math.abs(otherIndex - index) <= 2 && voiced[bestStart + otherIndex]);
+        });
+      }
+
+      function choosePitchPath(frames) {
+        const usable = frames.filter(frame => frame.candidates.length);
+        if (usable.length < 3) return [];
+        const scores = [];
+        const links = [];
+        for (let i = 0; i < usable.length; i++) {
+          const frame = usable[i];
+          scores[i] = [];
+          links[i] = [];
+          for (let c = 0; c < frame.candidates.length; c++) {
+            const candidate = frame.candidates[c];
+            const localCost = (1 - candidate.strength) * 4 + Math.max(0, Math.log2(candidate.hz / 60)) * 0.02;
+            if (i === 0) {
+              scores[i][c] = localCost;
+              links[i][c] = -1;
+              continue;
+            }
+            let bestScore = Infinity;
+            let bestLink = -1;
+            for (let p = 0; p < usable[i - 1].candidates.length; p++) {
+              const previous = usable[i - 1].candidates[p];
+              const semitones = Math.abs(12 * Math.log2(candidate.hz / previous.hz));
+              const gap = Math.max(1, (frame.time - usable[i - 1].time) / 0.01);
+              const transitionCost = semitones * 0.09 / Math.sqrt(gap) + Math.max(0, semitones - 7 * gap) ** 2 * 0.05;
+              const score = scores[i - 1][p] + localCost + transitionCost;
+              if (score < bestScore) {
+                bestScore = score;
+                bestLink = p;
+              }
+            }
+            scores[i][c] = bestScore;
+            links[i][c] = bestLink;
+          }
+        }
+        let bestIndex = 0;
+        let bestScore = Infinity;
+        for (let i = 0; i < scores[scores.length - 1].length; i++) {
+          if (scores[scores.length - 1][i] < bestScore) {
+            bestScore = scores[scores.length - 1][i];
+            bestIndex = i;
+          }
+        }
+        const path = [];
+        for (let i = usable.length - 1; i >= 0; i--) {
+          const candidate = usable[i].candidates[bestIndex];
+          path.push({
+            time: usable[i].time,
+            hz: candidate.hz
+          });
+          bestIndex = links[i][bestIndex];
+          if (bestIndex < 0 && i > 0) break;
+        }
+        return path.reverse();
+      }
+
+      function analyzeAudioBuffer(samples, sampleRate) {
+        if (!samples.length) return [];
+        const floor = 60,
+          ceiling = 500,
+          frameSize = Math.max(1024, Math.round(sampleRate * 0.052)),
+          hopSize = Math.max(128, Math.round(sampleRate * 0.01));
+        const frames = [];
+        for (let offset = 0; offset + frameSize <= samples.length; offset += hopSize) {
+          const result = pitchCandidates(samples.subarray(offset, offset + frameSize), sampleRate, floor, ceiling);
+          frames.push({
+            time: (offset + frameSize * 0.5) / sampleRate,
+            rms: result.rms,
+            candidates: result.candidates
+          });
+        }
+        return choosePitchPath(selectVoicedSegment(frames));
+      }
+
+      function recentRecordedSamples(seconds) {
+        const maxSamples = Math.min(recordedSampleCount, Math.round(recordedSampleRate * seconds));
+        const result = new Float32Array(maxSamples);
+        let writeOffset = maxSamples;
+        let remaining = maxSamples;
+        for (let i = recordedBuffers.length - 1; i >= 0 && remaining > 0; i--) {
+          const buffer = recordedBuffers[i];
+          const take = Math.min(buffer.length, remaining);
+          writeOffset -= take;
+          result.set(buffer.subarray(buffer.length - take), writeOffset);
+          remaining -= take;
+        }
+        return result;
+      }
+
+      function updateLivePreview(elapsed) {
+        if (!recordedSampleRate || elapsed - liveAnalysisTime < 0.18 || recordedSampleCount < recordedSampleRate * 0.22) return;
+        liveAnalysisTime = elapsed;
+        const analyzed = analyzeAudioBuffer(recentRecordedSamples(1.2), recordedSampleRate);
+        if (analyzed.length >= 3) pitchSamples = analyzed;
+      }
+
+      function stabilizePitch(hz) {
+        if (!(hz > 55 && hz < 650)) return -1;
+        if (!pitchSamples.length) return hz;
+        const recent = pitchSamples
+          .slice(-5)
+          .map(s => s.hz)
+          .sort((a, b) => a - b);
+        const reference = recent[Math.floor(recent.length / 2)];
+        let best = hz;
+        let bestDistance = Infinity;
+        for (const multiplier of [0.25, 0.5, 1, 2, 4]) {
+          const candidate = hz * multiplier;
+          if (candidate > 55 && candidate < 650) {
+            const distance = Math.abs(12 * Math.log2(candidate / reference));
+            if (distance < bestDistance) {
+              best = candidate;
+              bestDistance = distance;
+            }
+          }
+        }
+        return bestDistance <= 12 ? best : hz;
+      }
+
+      function addPitchSample(time, hz) {
+        const stableHz = stabilizePitch(hz);
+        if (stableHz > 0) {
+          pitchSamples.push({
+            time,
+            hz: stableHz
+          });
+        }
+      }
+
+      function drawLoop() {
+        if (!isRecording) return;
+        drawChart();
+        drawAnimationFrame = requestAnimationFrame(drawLoop);
+      }
+
+      async function ensureMicrophone() {
+        if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unsupported.");
+        if (mediaStream && audioContext && processorNode) {
+          if (audioContext.state === "suspended") await audioContext.resume();
+          return;
+        }
+        const constraints = {
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false,
+            channelCount: 1,
+            sampleRate: {
+              ideal: 48000
+            }
+          }
+        };
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (error) {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            audio: true
+          });
+        }
+        audioContext = new(window.AudioContext || window.webkitAudioContext)();
+        await audioContext.resume();
+        sourceNode = audioContext.createMediaStreamSource(mediaStream);
+        processorNode = audioContext.createScriptProcessor(2048, 1, 1);
+        silentNode = audioContext.createGain();
+        silentNode.gain.value = 0;
+        sourceNode.connect(processorNode);
+        processorNode.connect(silentNode).connect(audioContext.destination);
+      }
       async function startRecording() {
         try {
           await ensureMicrophone();
           pitchSamples = [];
+          recordedBuffers = [];
+          recordedSampleRate = audioContext.sampleRate;
+          recordedSampleCount = 0;
+          liveAnalysisTime = 0;
           startTime = audioContext.currentTime;
           isRecording = true;
           scoreBox.classList.remove('visible');
           recordButton.textContent = "Stop";
           recordButton.classList.add("recording");
           statusBox.textContent = "Listening... say the syllable.";
-          analyzeFrame();
+          processorNode.onaudioprocess = event => {
+            if (!isRecording) return;
+            const input = event.inputBuffer.getChannelData(0);
+            const copy = new Float32Array(input.length);
+            copy.set(input);
+            recordedBuffers.push(copy);
+            recordedSampleCount += copy.length;
+            updateLivePreview(audioContext.currentTime - startTime);
+          };
+          drawLoop();
         } catch (error) {
           statusBox.textContent = "Microphone access denied or unavailable.";
         }
       }
 
       function finishAttempt() {
-        const normalized = smoothPoints(normalizePitch(pitchSamples), 3);
-        if (normalized.length < 8) {
+        if (recordedBuffers.length && recordedSampleRate) {
+          const analyzed = analyzeAudioBuffer(mergeRecordedBuffers(recordedBuffers), recordedSampleRate);
+          if (analyzed.length) pitchSamples = analyzed;
+          recordedBuffers = [];
+          recordedSampleRate = 0;
+          recordedSampleCount = 0;
+          liveAnalysisTime = 0;
+        }
+        const normalized = normalizePitch(pitchSamples);
+        const actual = smoothPoints(interpolatePoints(normalized), 4);
+        if (normalized.length < 6) {
           statusBox.textContent = "Not enough stable pitch detected. Try holding the vowel longer.";
           scoreBox.classList.remove('visible');
         } else {
-          const score = calculateScore(normalized, currentTone);
+          const score = calculateScore(actual, currentTone);
           scoreBox.textContent = `${score}% Match`;
           scoreBox.classList.add('visible');
         }
@@ -572,9 +899,11 @@
 
       function stopRecording() {
         isRecording = false;
-        if (animationFrame) cancelAnimationFrame(animationFrame);
+        if (processorNode) processorNode.onaudioprocess = null;
+        if (drawAnimationFrame) cancelAnimationFrame(drawAnimationFrame);
         recordButton.textContent = "Record";
         recordButton.classList.remove("recording");
+        statusBox.textContent = "Analyzing...";
         finishAttempt();
       }
       async function analyzeUploadedFile(file) {
@@ -591,22 +920,11 @@
             const channelData = decoded.getChannelData(channel);
             for (let i = 0; i < decoded.length; i++) mono[i] += channelData[i] / decoded.numberOfChannels;
           }
-          const frameSize = 2048,
-            hopSize = 1024;
-          pitchSamples = [];
-          for (let offset = 0; offset + frameSize <= mono.length; offset += hopSize) {
-            const frame = mono.subarray(offset, offset + frameSize);
-            const hz = autoCorrelate(frame, decoded.sampleRate);
-            if (hz > 55 && hz < 650) {
-              const last = pitchSamples[pitchSamples.length - 1];
-              if (!last || Math.abs(hz - last.hz) / last.hz < 0.38) {
-                pitchSamples.push({
-                  time: offset / decoded.sampleRate,
-                  hz
-                });
-              }
-            }
-          }
+          recordedBuffers = [];
+          recordedSampleRate = 0;
+          recordedSampleCount = 0;
+          liveAnalysisTime = 0;
+          pitchSamples = analyzeAudioBuffer(mono, decoded.sampleRate);
           finishAttempt();
         } catch (error) {
           statusBox.textContent = "Could not decode audio file.";
@@ -618,20 +936,21 @@
 
       function sampleActual(points, x) {
         if (!points.length) return 0.5;
-        let best = points[0],
-          distance = Math.abs(points[0].x - x);
-        for (const point of points) {
-          const d = Math.abs(point.x - x);
-          if (d < distance) {
-            best = point;
-            distance = d;
+        if (x <= points[0].x) return points[0].y;
+        for (let i = 0; i < points.length - 1; i++) {
+          const left = points[i];
+          const right = points[i + 1];
+          if (x >= left.x && x <= right.x) {
+            const span = Math.max(right.x - left.x, 0.0001);
+            const t = (x - left.x) / span;
+            return left.y + (right.y - left.y) * t;
           }
         }
-        return best.y;
+        return points[points.length - 1].y;
       }
 
       function calculateScore(points, tone) {
-        const target = toneCurves[tone];
+        const target = getToneCurve(tone, previousTone);
         let error = 0,
           count = 50;
         if (tone === 1) {
@@ -664,7 +983,7 @@
         await context.resume();
         const oscillator = context.createOscillator(),
           gain = context.createGain();
-        const curve = toneCurves[currentTone],
+        const curve = getToneCurve(currentTone, previousTone),
           duration = currentTone === 5 ? 0.5 : 1.15;
         const now = context.currentTime + 0.04;
         oscillator.type = "sine";
@@ -689,6 +1008,7 @@
           toneButtons.forEach(b => b.classList.remove("active"));
           e.target.classList.add("active");
           currentTone = Number(e.target.dataset.tone);
+          if (currentTone !== 5) previousTone = currentTone;
           updateSyllable();
         });
       });
@@ -702,6 +1022,10 @@
       clearButton.addEventListener("click", () => {
         if (isRecording) stopRecording();
         pitchSamples = [];
+        recordedBuffers = [];
+        recordedSampleRate = 0;
+        recordedSampleCount = 0;
+        liveAnalysisTime = 0;
         scoreBox.classList.remove('visible');
         statusBox.textContent = "Ready.";
         drawChart();
