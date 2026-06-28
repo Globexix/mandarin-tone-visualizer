@@ -400,33 +400,62 @@
         return curve[curve.length - 1][1];
       }
 
-      function normalizePitch(samples) {
-        const valid = samples
+      function validPitchSamples(samples) {
+        return samples
           .filter(s => Number.isFinite(s.hz) && s.hz > 55 && s.hz < 650)
           .sort((a, b) => a.time - b.time);
+      }
+
+      function pitchStats(valid) {
         if (valid.length < 3) return [];
+        const stValues = valid.map(s => 12 * Math.log2(s.hz));
+        const stSorted = stValues.slice().sort((a, b) => a - b);
+        const lo = stSorted[Math.floor(stSorted.length * 0.08)];
+        const hi = stSorted[Math.floor(stSorted.length * 0.92)];
+        const center = (lo + hi) / 2;
+        const span = Math.max(hi - lo, 3.5);
+        return {
+          stValues,
+          center,
+          scale: Math.max(12, span * 1.7)
+        };
+      }
+
+      function normalizePitch(samples) {
+        const valid = validPitchSamples(samples);
+        if (valid.length < 3) return [];
+        const stats = pitchStats(valid);
         const times = valid.map(s => s.time);
         const minTime = times[0];
         const maxTime = times[times.length - 1];
-        const stValues = valid.map(s => 12 * Math.log2(s.hz));
         const filtered = valid.map((sample, index) => {
-          const window = stValues
-            .slice(Math.max(0, index - 2), Math.min(stValues.length, index + 3))
+          const window = stats.stValues
+            .slice(Math.max(0, index - 2), Math.min(stats.stValues.length, index + 3))
             .sort((a, b) => a - b);
           return {
             x: (sample.time - minTime) / Math.max(maxTime - minTime, 0.001),
             st: window[Math.floor(window.length / 2)]
           };
         });
-        const stSorted = filtered.map(s => s.st).sort((a, b) => a - b);
-        const lo = stSorted[Math.floor(stSorted.length * 0.08)];
-        const hi = stSorted[Math.floor(stSorted.length * 0.92)];
-        const center = (lo + hi) / 2;
-        const span = Math.max(hi - lo, 3.5);
         return filtered.map(s => ({
           x: s.x,
-          y: Math.max(0.05, Math.min(0.95, 0.5 + (s.st - center) / Math.max(12, span * 1.7)))
+          y: Math.max(0.05, Math.min(0.95, 0.5 + (s.st - stats.center) / stats.scale))
         }));
+      }
+
+      function pitchLabelScale() {
+        const valid = validPitchSamples(pitchSamples);
+        if (valid.length < 3) return [
+          [0.88, "High"],
+          [0.50, "Mid"],
+          [0.12, "Low"]
+        ];
+        const stats = pitchStats(valid);
+        return [0.88, 0.50, 0.12].map(y => {
+          const st = stats.center + (y - 0.5) * stats.scale;
+          const hz = Math.round(Math.pow(2, st / 12));
+          return [y, `${hz} Hz`];
+        });
       }
 
       function smoothPoints(points, radius = 3) {
@@ -473,18 +502,27 @@
         const pad = {
           top: 20,
           bottom: 20,
-          side: 5
+          left: 46,
+          right: 5
         };
-        const plotW = width - pad.side * 2;
+        const plotW = width - pad.left - pad.right;
         const plotH = height - pad.top - pad.bottom;
         ctx.clearRect(0, 0, width, height);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.42)';
+        ctx.font = '11px Inter, -apple-system, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        for (const [yNorm, label] of pitchLabelScale()) {
+          const y = pad.top + (1 - yNorm) * plotH;
+          ctx.fillText(label, pad.left - 8, y);
+        }
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         for (let i = 1; i <= 3; i++) {
           const y = pad.top + (plotH * i / 4);
-          ctx.moveTo(pad.side, y);
-          ctx.lineTo(width - pad.side, y);
+          ctx.moveTo(pad.left, y);
+          ctx.lineTo(width - pad.right, y);
         }
         ctx.stroke();
         const target = getToneCurve(currentTone, previousTone);
@@ -497,7 +535,7 @@
         for (let i = 0; i <= 100; i++) {
           const xNorm = i / 100;
           const yNorm = curveAt(target, xNorm);
-          const x = pad.side + xNorm * plotW;
+          const x = pad.left + xNorm * plotW;
           const y = pad.top + (1 - yNorm) * plotH;
           if (i === 0) ctx.moveTo(x, y);
           else ctx.lineTo(x, y);
@@ -512,7 +550,7 @@
           ctx.lineJoin = "round";
           ctx.beginPath();
           actual.forEach((point, index) => {
-            const x = pad.side + point.x * plotW;
+            const x = pad.left + point.x * plotW;
             const y = pad.top + (1 - point.y) * plotH;
             if (index === 0) ctx.moveTo(x, y);
             else ctx.lineTo(x, y);
