@@ -30,6 +30,7 @@
         background: var(--bg);
         color: var(--fg);
         min-height: 100vh;
+        overflow-x: hidden;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -44,6 +45,131 @@
         display: flex;
         flex-direction: column;
         gap: 3rem;
+        position: relative;
+      }
+
+      .help-trigger {
+        position: absolute;
+        left: 0;
+        width: 32px;
+        height: 32px;
+        background: transparent;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 50%;
+        color: var(--muted);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        user-select: none;
+        font-size: 1.1rem;
+        font-family: inherit;
+        transition: color 0.2s, background 0.2s;
+        z-index: 50;
+      }
+
+      .help-trigger:hover {
+        color: var(--fg);
+      }
+
+      .help-card {
+        position: absolute;
+        bottom: -1.5rem;
+        left: 2rem;
+        width: calc(100% - 4rem);
+        padding: 1.25rem;
+        background: rgba(0, 0, 0, 0.88);
+        border-radius: 1rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+        color: var(--muted-light);
+        font-size: 0.8rem;
+        line-height: 1.5;
+        backdrop-filter: blur(12px);
+        z-index: 51;
+        text-align: left;
+        pointer-events: none;
+        opacity: 0;
+        transform: translateY(10px);
+        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      main:has(.help-trigger:hover) .help-card {
+        opacity: 1;
+        transform: translateY(0);
+        pointer-events: auto;
+      }
+
+      main:has(.help-trigger:hover) .controls-row,
+      main:has(.help-trigger:hover) .status,
+      main:has(.help-trigger:hover) .chart-wrapper .hint {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+      }
+
+      .help-card p+p {
+        margin-top: 0.7rem;
+      }
+
+      .hint {
+        background: rgba(0, 0, 0, 0.88);
+        border: 1px solid var(--line);
+        color: var(--muted-light);
+        font-size: 0.75rem;
+        line-height: 1.45;
+        backdrop-filter: blur(12px);
+        display: none;
+        position: absolute;
+        border-radius: 999px;
+        padding: 0.3rem 0.55rem;
+        pointer-events: none;
+        white-space: nowrap;
+        z-index: 2;
+      }
+
+      main:has(.help-trigger:hover) .hint {
+        display: block;
+      }
+
+      .demo-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.4s ease;
+        z-index: 10;
+      }
+
+      .demo-overlay.visible {
+        opacity: 1;
+      }
+
+      .callout-dot {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        background: var(--fg);
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px var(--bg);
+        transform: translate(-50%, -50%);
+      }
+
+      .callout-text {
+        position: absolute;
+        background: rgba(0, 0, 0, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 0.4rem 0.6rem;
+        border-radius: 0.4rem;
+        color: var(--fg);
+        font-size: 0.75rem;
+        white-space: nowrap;
+        backdrop-filter: blur(8px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        font-weight: 500;
       }
 
       .setup-row {
@@ -51,6 +177,13 @@
         align-items: center;
         justify-content: center;
         gap: 1.5rem;
+        position: relative;
+      }
+
+      .setup-row .hint {
+        left: 50%;
+        top: -2rem;
+        transform: translateX(-50%);
       }
 
       .pinyin-input {
@@ -108,6 +241,12 @@
         flex-direction: column;
         justify-content: center;
         align-items: center;
+        position: relative;
+      }
+
+      .display-row .hint {
+        right: 0;
+        top: 1rem;
       }
 
       .syllable {
@@ -136,6 +275,11 @@
         position: relative;
       }
 
+      .chart-wrapper .hint {
+        left: 46px;
+        top: -1.5rem;
+      }
+
       canvas {
         width: 100%;
         height: 100%;
@@ -147,6 +291,13 @@
         align-items: center;
         justify-content: center;
         gap: 1.5rem;
+        position: relative;
+      }
+
+      .controls-row .hint {
+        left: 50%;
+        top: -2rem;
+        transform: translateX(-50%);
       }
 
       button {
@@ -217,6 +368,48 @@
         }
       }
 
+      @media (max-width: 700px), (pointer: coarse) {
+        main {
+          overflow-x: clip;
+        }
+
+        .help-card {
+          position: fixed;
+          left: 1rem;
+          right: auto;
+          top: auto;
+          bottom: 1rem;
+          bottom: max(1rem, env(safe-area-inset-bottom));
+          width: calc(100vw - 2rem);
+          max-width: calc(100vw - 2rem);
+          max-height: min(30dvh, 15rem);
+          padding: 0.9rem;
+          font-size: 0.72rem;
+          line-height: 1.4;
+          white-space: normal;
+          overflow-wrap: break-word;
+          overflow-y: auto;
+          transform: translateY(10px);
+        }
+
+        main:has(.help-trigger:hover) .help-card {
+          transform: translateY(0);
+        }
+
+        .help-card p+p {
+          margin-top: 0.55rem;
+        }
+
+        main:has(.help-trigger:hover) .hint {
+          display: none;
+        }
+
+        .callout-text {
+          white-space: normal;
+          max-width: 8.5rem;
+        }
+      }
+
       @media (max-width: 480px) {
         .controls-row {
           flex-wrap: wrap;
@@ -228,12 +421,21 @@
           width: 100%;
           margin-bottom: 0.5rem;
         }
+
+        .display-row .hint,
+        .chart-wrapper .hint {
+          left: 50%;
+          right: auto;
+          transform: translateX(-50%);
+        }
       }
     </style>
   </head>
   <body>
     <main>
       <section class="setup-row">
+        <div class="help-trigger" id="helpTrigger">?</div>
+        <div class="hint">Choose the syllable and target tone</div>
         <input type="text" id="pinyin" class="pinyin-input" value="ma" maxlength="6" autocomplete="off" spellcheck="false" />
         <div class="tone-toggles">
           <button class="tone-btn" data-tone="1">1</button>
@@ -248,7 +450,21 @@
         <div class="score" id="score"></div>
       </section>
       <section class="chart-wrapper">
+        <div class="hint">Dashed line: Target pitch. White line: Detected pitch. Left labels indicate your approximate vocal pitch range (Hz).</div>
         <canvas id="chart"></canvas>
+        <div class="demo-overlay" id="demoOverlay">
+          <svg width="100%" height="100%" style="position: absolute; top: 0; left: 0; pointer-events: none;">
+            <line id="lineTarget" x2="55%" y2="20%" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+            <line id="linePitch" x2="55%" y2="85%" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+            <line id="lineRange" x2="55" y2="65%" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" />
+          </svg>
+          <div class="callout-dot" id="dotTarget"></div>
+          <div class="callout-dot" id="dotPitch"></div>
+          <div class="callout-dot" id="dotRange"></div>
+          <div class="callout-text" id="textTarget" style="top: 20%; left: 55%; transform: translate(5px, -50%);">Target tone (4)</div>
+          <div class="callout-text" id="textPitch" style="top: 85%; left: 55%; transform: translate(calc(-100% - 5px), -50%);">Your pitch</div>
+          <div class="callout-text" id="textRange" style="top: 65%; left: 55px; transform: translate(0, calc(-100% - 5px));">Vocal range (Hz)</div>
+        </div>
       </section>
       <section class="controls-row">
         <button class="sec-btn" id="playTarget">Play Target</button>
@@ -258,6 +474,12 @@
         <button class="sec-btn" id="clear">Clear</button>
       </section>
       <div class="status" id="status">Hold the vowel for roughly one second.</div>
+      <div class="help-card" id="helpCard">
+        <p>This is a pitch visualizer. It shows whether your voice rises, falls, stays level, or dips while practicing a Mandarin tone.</p>
+        <p>The dashed line is the selected target tone. The white line is your detected pitch. The Hz labels are approximate because the chart is normalized per attempt.</p>
+        <p>It is for single syllables, not full words. It only checks pitch shape, not vowels, consonants, accent, or natural word and sentence tones.</p>
+        <p>Press Stop after saying the syllable or tone to finalize the analysis. The score is a contour match, not a full pronunciation grade.</p>
+      </div>
     </main>
     <script>
       const pinyinInput = document.getElementById("pinyin");
@@ -334,7 +556,6 @@
             [1, 0.44]
           ];
         }
-
         return toneCurves[tone];
       }
 
@@ -401,9 +622,7 @@
       }
 
       function validPitchSamples(samples) {
-        return samples
-          .filter(s => Number.isFinite(s.hz) && s.hz > 55 && s.hz < 650)
-          .sort((a, b) => a.time - b.time);
+        return samples.filter(s => Number.isFinite(s.hz) && s.hz > 55 && s.hz < 650).sort((a, b) => a.time - b.time);
       }
 
       function pitchStats(valid) {
@@ -429,9 +648,7 @@
         const minTime = times[0];
         const maxTime = times[times.length - 1];
         const filtered = valid.map((sample, index) => {
-          const window = stats.stValues
-            .slice(Math.max(0, index - 2), Math.min(stats.stValues.length, index + 3))
-            .sort((a, b) => a - b);
+          const window = stats.stValues.slice(Math.max(0, index - 2), Math.min(stats.stValues.length, index + 3)).sort((a, b) => a - b);
           return {
             x: (sample.time - minTime) / Math.max(maxTime - minTime, 0.001),
             st: window[Math.floor(window.length / 2)]
@@ -556,6 +773,32 @@
             else ctx.lineTo(x, y);
           });
           ctx.stroke();
+        }
+        const dotTarget = document.getElementById("dotTarget");
+        if (dotTarget) {
+          const tXNorm = 0.25;
+          const tYNorm = curveAt(target, tXNorm);
+          const tX = pad.left + tXNorm * plotW;
+          const tY = pad.top + (1 - tYNorm) * plotH;
+          dotTarget.style.left = tX + "px";
+          dotTarget.style.top = tY + "px";
+          document.getElementById("lineTarget").setAttribute("x1", tX);
+          document.getElementById("lineTarget").setAttribute("y1", tY);
+          if (actual.length > 0) {
+            const pIdx = Math.floor(actual.length * 0.8);
+            const pX = pad.left + actual[pIdx].x * plotW;
+            const pY = pad.top + (1 - actual[pIdx].y) * plotH;
+            document.getElementById("dotPitch").style.left = pX + "px";
+            document.getElementById("dotPitch").style.top = pY + "px";
+            document.getElementById("linePitch").setAttribute("x1", pX);
+            document.getElementById("linePitch").setAttribute("y1", pY);
+          }
+          const rX = pad.left;
+          const rY = pad.top + (1 - 0.12) * plotH;
+          document.getElementById("dotRange").style.left = rX + "px";
+          document.getElementById("dotRange").style.top = rY + "px";
+          document.getElementById("lineRange").setAttribute("x1", rX);
+          document.getElementById("lineRange").setAttribute("y1", rY);
         }
       }
 
@@ -815,10 +1058,7 @@
       function stabilizePitch(hz) {
         if (!(hz > 55 && hz < 650)) return -1;
         if (!pitchSamples.length) return hz;
-        const recent = pitchSamples
-          .slice(-5)
-          .map(s => s.hz)
-          .sort((a, b) => a - b);
+        const recent = pitchSamples.slice(-5).map(s => s.hz).sort((a, b) => a - b);
         const reference = recent[Math.floor(recent.length / 2)];
         let best = hz;
         let bestDistance = Infinity;
@@ -850,7 +1090,6 @@
         drawChart();
         drawAnimationFrame = requestAnimationFrame(drawLoop);
       }
-
       async function ensureMicrophone() {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error("Microphone unsupported.");
         if (mediaStream && audioContext && processorNode) {
@@ -1072,6 +1311,58 @@
       window.addEventListener("resize", resizeCanvas);
       updateSyllable();
       setTimeout(resizeCanvas, 0);
+      // --- Demo Overlay Logic ---
+      const helpTrigger = document.getElementById("helpTrigger");
+      const demoOverlay = document.getElementById("demoOverlay");
+      let savedState = null;
+      helpTrigger.addEventListener("mouseenter", () => {
+        if (isRecording) return;
+        savedState = {
+          tone: currentTone,
+          pinyin: pinyinInput.value,
+          samples: [...pitchSamples],
+          scoreVisible: scoreBox.classList.contains('visible'),
+          scoreText: scoreBox.textContent
+        };
+        currentTone = 4;
+        pinyinInput.value = "ma";
+        markedSyllable.textContent = applyToneMark("ma", 4);
+        // Generate mock tone 4 shape
+        const mockSamples = [];
+        for (let i = 0; i < 60; i++) {
+          const t = i / 60;
+          let hz = 240 - t * 120;
+          hz += (Math.random() - 0.5) * 4;
+          mockSamples.push({
+            time: t * 0.4,
+            hz: hz
+          });
+        }
+        pitchSamples = mockSamples;
+        scoreBox.classList.remove('visible');
+        document.querySelectorAll(".tone-btn").forEach(btn => {
+          btn.classList.toggle("active", Number(btn.dataset.tone) === 4);
+        });
+        drawChart();
+        demoOverlay.classList.add("visible");
+      });
+      helpTrigger.addEventListener("mouseleave", () => {
+        if (!savedState) return;
+        currentTone = savedState.tone;
+        pinyinInput.value = savedState.pinyin;
+        markedSyllable.textContent = applyToneMark(savedState.pinyin, savedState.tone);
+        pitchSamples = savedState.samples;
+        if (savedState.scoreVisible) {
+          scoreBox.textContent = savedState.scoreText;
+          scoreBox.classList.add('visible');
+        }
+        document.querySelectorAll(".tone-btn").forEach(btn => {
+          btn.classList.toggle("active", Number(btn.dataset.tone) === currentTone);
+        });
+        drawChart();
+        demoOverlay.classList.remove("visible");
+        savedState = null;
+      });
     </script>
   </body>
 </html>
